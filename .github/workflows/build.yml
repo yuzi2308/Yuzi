@@ -1,0 +1,266 @@
+name: 🔥 X-FCOLS APK BUILDER 🔥
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: 'Build ID (auto generated)'
+        required: true
+        type: string
+      build_type:
+        description: 'Tipe Build'
+        required: true
+        type: choice
+        options:
+          - debug
+          - release
+      file_url:
+        description: 'URL Source Code (ZIP)'
+        required: true
+        type: string
+      user_id:
+        description: 'Telegram User ID'
+        required: true
+        type: string
+      username:
+        description: 'Telegram Username'
+        required: false
+        type: string
+      app_name:
+        description: 'Nama Aplikasi'
+        required: false
+        type: string
+        default: 'MyApp'
+      package_name:
+        description: 'Package Name'
+        required: false
+        type: string
+        default: 'com.example.myapp'
+
+env:
+  BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  build:
+    name: 🚀 Build APK - ${{ github.event.inputs.build_type }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+      - name: 🎉 Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: 🔧 Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      
+      - name: 🤖 Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-34 build-tools;34.0.0'
+      
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: 🎯 Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.16.0'
+          channel: 'stable'
+      
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: 📥 Download Source Code
+        run: |
+          echo "📥 Downloading source code from: ${{ github.event.inputs.file_url }}"
+          curl -L -o source.zip "${{ github.event.inputs.file_url }}" --max-time 300
+          if [ ! -f source.zip ]; then
+            echo "❌ Failed to download source code"
+            exit 1
+          fi
+          mkdir -p source
+          unzip -q source.zip -d source/
+          echo "✅ Source code extracted"
+      
+      - name: 🔍 Detect Project Type
+        id: detect
+        run: |
+          cd source
+          
+          # Check project type
+          if [ -f "AndroidManifest.xml" ] || [ -d "app/src/main" ]; then
+            echo "type=android_native" >> $GITHUB_OUTPUT
+            echo "name=Android Native" >> $GITHUB_OUTPUT
+          elif [ -f "pubspec.yaml" ]; then
+            echo "type=flutter" >> $GITHUB_OUTPUT
+            echo "name=Flutter" >> $GITHUB_OUTPUT
+          elif [ -f "package.json" ] && [ -d "android" ]; then
+            echo "type=react_native" >> $GITHUB_OUTPUT
+            echo "name=React Native" >> $GITHUB_OUTPUT
+          elif [ -f "build.gradle" ]; then
+            echo "type=gradle" >> $GITHUB_OUTPUT
+            echo "name=Gradle Project" >> $GITHUB_OUTPUT
+          elif [ -f "settings.gradle" ]; then
+            echo "type=gradle" >> $GITHUB_OUTPUT
+            echo "name=Gradle Project" >> $GITHUB_OUTPUT
+          else
+            echo "type=unknown" >> $GITHUB_OUTPUT
+            echo "name=Unknown" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "📱 Detected: $(echo ${{ steps.detect.outputs.name }})"
+      
+      - name: 🏗️ Build Android Native
+        if: steps.detect.outputs.type == 'android_native'
+        run: |
+          cd source
+          
+          # Create gradle wrapper if not exists
+          if [ ! -f "gradlew" ]; then
+            echo "Creating gradle wrapper..."
+            gradle wrapper
+          fi
+          
+          chmod +x gradlew
+          
+          # Build based on type
+          if [ "${{ github.event.inputs.build_type }}" == "release" ]; then
+            echo "🏗️ Building Release APK..."
+            ./gradlew assembleRelease --no-daemon
+            APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          else
+            echo "🏗️ Building Debug APK..."
+            ./gradlew assembleDebug --no-daemon
+            APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+          fi
+          
+          if [ -f "$APK_PATH" ]; then
+            cp "$APK_PATH" ../app.apk
+            echo "✅ APK built successfully"
+          else
+            echo "❌ APK not found"
+            exit 1
+          fi
+      
+      - name: 🏗️ Build Flutter
+        if: steps.detect.outputs.type == 'flutter'
+        run: |
+          cd source
+          flutter clean
+          flutter pub get
+          
+          if [ "${{ github.event.inputs.build_type }}" == "release" ]; then
+            echo "🏗️ Building Flutter Release APK..."
+            flutter build apk --release
+            cp build/app/outputs/flutter-apk/app-release.apk ../app.apk
+          else
+            echo "🏗️ Building Flutter Debug APK..."
+            flutter build apk --debug
+            cp build/app/outputs/flutter-apk/app-debug.apk ../app.apk
+          fi
+          
+          echo "✅ Flutter APK built successfully"
+      
+      - name: 🏗️ Build React Native
+        if: steps.detect.outputs.type == 'react_native'
+        run: |
+          cd source
+          echo "📦 Installing dependencies..."
+          npm install
+          
+          cd android
+          chmod +x gradlew
+          
+          if [ "${{ github.event.inputs.build_type }}" == "release" ]; then
+            echo "🏗️ Building React Native Release APK..."
+            ./gradlew assembleRelease --no-daemon
+            cp app/build/outputs/apk/release/*.apk ../../app.apk
+          else
+            echo "🏗️ Building React Native Debug APK..."
+            ./gradlew assembleDebug --no-daemon
+            cp app/build/outputs/apk/debug/*.apk ../../app.apk
+          fi
+          
+          echo "✅ React Native APK built successfully"
+      
+      - name: 🏗️ Build Gradle Project
+        if: steps.detect.outputs.type == 'gradle'
+        run: |
+          cd source
+          chmod +x gradlew 2>/dev/null || true
+          
+          if [ ! -f "gradlew" ]; then
+            gradle wrapper
+          fi
+          
+          chmod +x gradlew
+          
+          if [ "${{ github.event.inputs.build_type }}" == "release" ]; then
+            ./gradlew assembleRelease --no-daemon
+          else
+            ./gradlew assembleDebug --no-daemon
+          fi
+          
+          APK_PATH=$(find . -name "*.apk" -type f | head -n 1)
+          if [ -f "$APK_PATH" ]; then
+            cp "$APK_PATH" ../app.apk
+            echo "✅ APK built successfully"
+          else
+            echo "❌ APK not found"
+            exit 1
+          fi
+      
+      - name: 🎨 Customize APK (Optional)
+        if: github.event.inputs.app_name != 'MyApp'
+        run: |
+          # This requires apktool, optional step
+          echo "🎨 Customizing APK..."
+          # Add custom app name if needed
+      
+      - name: 📦 Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.event.inputs.build_id }}-${{ github.event.inputs.build_type }}
+          path: app.apk
+          retention-days: 7
+      
+      - name: 📤 Send to Telegram - Success
+        if: success()
+        run: |
+          FILE_SIZE=$(stat -c%s "app.apk")
+          FILE_SIZE_MB=$(echo "scale=2; $FILE_SIZE / 1048576" | bc)
+          
+          curl -F "chat_id=${{ github.event.inputs.user_id }}" \
+               -F "document=@app.apk" \
+               -F "caption=🎉 *BUILD APK SELESAI!* 🎉%0A%0A━━━━━━━━━━━━━━━━━━━━━━━━%0A📱 *Tipe Build:* ${{ github.event.inputs.build_type }}%0A🔢 *Build ID:* ${{ github.event.inputs.build_id }}%0A📦 *Ukuran File:* ${FILE_SIZE_MB} MB%0A🗂️ *Project Type:* ${{ steps.detect.outputs.name }}%0A━━━━━━━━━━━━━━━━━━━━━━━━%0A%0A✅ Klik file di atas untuk download APK!%0A%0A━━━━━━━━━━━━━━━━━━━━━━━━%0A🔥 @Emakloewe - YUZI DEV%0A━━━━━━━━━━━━━━━━━━━━━━━━" \
+               "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument"
+      
+      - name: 📝 Send Message - Success
+        if: success()
+        run: |
+          curl -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+               -d "chat_id=${{ github.event.inputs.user_id }}" \
+               -d "parse_mode=HTML" \
+               -d "text=✅ <b>BUILD BERHASIL!</b>%0A%0A🔢 Build ID: <code>${{ github.event.inputs.build_id }}</code>%0A📱 Tipe: ${{ github.event.inputs.build_type }}%0A%0A📥 APK sudah dikirim di atas!%0A%0A🔥 Tekan /start untuk build lagi."
+      
+      - name: 📤 Send to Telegram - Failure
+        if: failure()
+        run: |
+          curl -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+               -d "chat_id=${{ github.event.inputs.user_id }}" \
+               -d "parse_mode=HTML" \
+               -d "text=❌ <b>BUILD GAGAL!</b>%0A%0A🔢 Build ID: <code>${{ github.event.inputs.build_id }}</code>%0A📱 Tipe: ${{ github.event.inputs.build_type }}%0A%0A⚠️ Kemungkinan penyebab:%0A- Source code tidak lengkap%0A- Struktur project tidak sesuai%0A- Error pada kode%0A%0A🔄 Silakan cek source code dan coba lagi.%0A%0A🔥 @Emakloewe - YUZI DEV"
+      
+      - name: 🧹 Cleanup
+        if: always()
+        run: |
+          rm -rf source source.zip app.apk 2>/dev/null || true
+          echo "🧹 Cleanup completed"
