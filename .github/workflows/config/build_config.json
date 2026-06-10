@@ -1,0 +1,25 @@
+{
+  "android": {
+    "compileSdk": 34,
+    "minSdk": 21,
+    "targetSdk": 34,
+    "buildTools": "34.0.0"
+  },
+  "flutter": {
+    "channel": "stable",
+    "version": "3.16.0"
+  },
+  "react_native": {
+    "nodeVersion": "18",
+    "buildCommand": "cd android && ./gradlew assembleRelease"
+  },
+  "build": {
+    "timeout": 20,
+    "maxRetries": 3,
+    "cleanup": true
+  },
+  "telegram": {
+    "parseMode": "HTML",
+    "disableNotification": false
+  }
+    }
